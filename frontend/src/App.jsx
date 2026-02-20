@@ -73,7 +73,7 @@ import { useState } from "react"
   }
   const data = await response.json()
   setLoading(false)
-  setError(data.status)
+  setError(data.file.url)
   
  }  
 

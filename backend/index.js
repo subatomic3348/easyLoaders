@@ -255,7 +255,7 @@ app.post('/api/v1/download',(req,res)=>{
                 "name":fileName,
                 "size":"10mb",
                 "expireAt": date,
-                "url":`files/${endCodedName}`
+                "url":`http://localhost:3000/files/${endCodedName}`
 
 
             }
