@@ -10,8 +10,13 @@ const fs = require('fs')
 
 app.post("/api/v1/extract",async(req,res)=>{
     const url =  req.body.url
-   try {
+
     const validUrl = new URL(url) 
+    if(!validUrl){
+        return res.status(400).json({
+            message:"invalid url"
+        })
+    }
     const platform = returnPlatform(validUrl.hostname)
 
      if(platform=='unsupported'){
@@ -20,28 +25,18 @@ app.post("/api/v1/extract",async(req,res)=>{
         })
         return
       }
-
-  const mocktest =  await mockRegistry[platform](url)
-  if(!mocktest){
-    return res.json({
-        message:"not supported stream"
-    })
-  }
-  else{
-  return  res.json({
-        test : mocktest
-    })
-  }
-         
-   }
-   catch(e){
-    console.log(e);
-    
-    return res.status(400).json({
-        message:"invalid url"
-    })
-
-   }
+    try{
+         const mocktest =  await mockRegistry[platform](url)
+        return  res.json({
+            test:mocktest
+        })
+    }
+    catch(e){
+        console.log(e);
+        return res.status(500).json({
+            message:'error while running the process'
+        })
+    }
    
     
 
@@ -81,9 +76,22 @@ function returnPlatform(hostname) {
 
 async function YotubeExtractor(url){
     let stream="";
+    let killTimeout
     return new Promise((resolve,reject)=>{
-        console.log('hii there')
-        const videoProcess = spawn('yt-dlp',['-J',url])
+        console.log('process starting');
+         let settled = false
+        const videoProcess = spawn('yt-dlp',['-J','--force-ipv4',url])
+        const timeout = setTimeout(()=>{
+            if(settled) return
+            settled = true
+            videoProcess.kill('SIGTERM')
+
+            reject(new Error("Timeout"))
+            killTimeout = setTimeout(()=>{
+                videoProcess.kill('SIGKILL')
+                //gracefull Shutdown
+            },5000)
+        }, 60000)
         
         
         videoProcess.stdout.on('data',(data)=>{
@@ -91,12 +99,16 @@ async function YotubeExtractor(url){
             console.log('hi from inside data add o');
             
         })
-        videoProcess.on('close',(code)=>{
+        videoProcess.on('close',(code)=>{  
+           if(settled) return
+           settled = true
+           clearTimeout(timeout)
+           clearTimeout(killTimeout)
             if(code!=0){
-                reject()
+                reject(new Error('yt-dlp failed'))
                 return
             }
-          
+            
             
             const output = JSON.parse(stream)
         
@@ -119,7 +131,7 @@ async function YotubeExtractor(url){
             })
         
          
-         
+        
          
             const finalFormats = cleanFormat.map(f=>({
                 id:f.format_id,
@@ -188,7 +200,8 @@ const mockRegistry = {
 }
 
 
-app.post('/api/v1/download',(req,res)=>{
+app.post('/api/v1/download',async(req,res)=>{
+    
     let output="";
     const url = req.body.url
      const formatId = req.body.id
@@ -198,8 +211,9 @@ app.post('/api/v1/download',(req,res)=>{
         })
     }
     const args = [
-         '-f' , `${formatId}+bestaudio`,
-          '-o', 'downloads/%(title)s.%(ext)s',
+         '-f' , `${formatId}+ba/b`,
+         
+          '-o', 'downloads/%(title)s_%(format_id)s.%(ext)s',
          '--ffmpeg-location',
          '/usr/bin/ffmpeg',
           url
@@ -217,13 +231,17 @@ app.post('/api/v1/download',(req,res)=>{
         console.log(`stderr:${data.toString()}`);
         
     })
-    process.on('close',(code)=>{
+    process.on('close',async(code)=>{
         if(code!==0){
             return res.status(500).json({
                 message:'download failed'
             })
         }
+        console.log(output);
+        
     const fileName = extractFileName(output)
+    const stat = await fs.promises.stat(`downloads/${fileName}`)
+    const fileSize = stat.size
     const TTL = 3
     setTimeout(()=>{
         fs.unlink(`downloads/${fileName}`,(err)=>{
@@ -246,6 +264,10 @@ app.post('/api/v1/download',(req,res)=>{
 
 
     const endCodedName = encodeURIComponent(fileName)
+   
+   
+     
+
         
         
          
@@ -253,7 +275,7 @@ app.post('/api/v1/download',(req,res)=>{
             status:"ready",
             file:{
                 "name":fileName,
-                "size":"10mb",
+                "size":`${(fileSize/1000000)}MB`,
                 "expireAt": date,
                 "url":`http://localhost:3000/files/${endCodedName}`
 
@@ -306,7 +328,7 @@ function pickBest(groups){
     for(const quality  in groups){
         const candidate = groups[quality]
         let best = candidate[0]
-        for(const c in candidate){
+        for(const c of candidate){  // --> diff in for in and for of loops in js ?? 
             if(isBetter(c,best)){
                 best = c
             }
