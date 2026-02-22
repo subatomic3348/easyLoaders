@@ -5,6 +5,7 @@ const {spawn} = require('node:child_process')
 
 app.use('/files',express.static('downloads'))
 const fs = require('fs')
+const { resolve } = require('node:path')
 
 
 
@@ -355,6 +356,31 @@ function isBetter(a,b){
     return false
     
 }
+
+async function retryWithBackoff(extactor,numberOfRetries){
+    let retries =0
+     let wait =1000
+    while(retries<=numberOfRetries){
+        try{
+           const data = await extactor()
+             return data
+        }
+        catch(e){
+            retries++;
+           await delay(wait)
+            wait*=2
+          
+           if(retries>numberOfRetries){
+             throw e
+           }
+           console.log(`retry ${retries} failed `);
+           
+        }
+    }  
+}
+    function delay(ms){
+        return new Promise(resolve=>setTimeout(resolve,ms))
+    }
 
 
 app.listen(3000,()=>{
