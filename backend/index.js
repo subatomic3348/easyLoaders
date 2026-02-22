@@ -19,15 +19,26 @@ app.post("/api/v1/extract",async(req,res)=>{
         })
     }
     const platform = returnPlatform(validUrl.hostname)
+    console.log(platform);
+   
+    
 
      if(platform=='unsupported'){
-         res.status(400).json({
+        console.log("hi there from platform");
+        
+       return  res.status(400).json({
             message:"we dont supported this website"
         })
         return
       }
+       const extract = mockRegistry[platform]
+      if(!extract){
+        return res.status(400).json({
+            message:`${platform} not supported`
+        })
+    }
     try{
-         const mocktest =  await mockRegistry[platform](url)
+           const mocktest =  await retryWithBackoff(()=>mockRegistry[platform](url),3)
         return  res.json({
             test:mocktest
         })
@@ -357,17 +368,17 @@ function isBetter(a,b){
     
 }
 
-async function retryWithBackoff(extactor,numberOfRetries){
+async function retryWithBackoff(extractor,numberOfRetries){
     let retries =0
      let wait =1000
     while(retries<=numberOfRetries){
         try{
-           const data = await extactor()
+           const data = await extractor()
              return data
         }
         catch(e){
             retries++;
-           await delay(wait)
+           await delay(wait+Math.random()*500)
             wait*=2
           
            if(retries>numberOfRetries){
