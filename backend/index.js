@@ -1,21 +1,35 @@
 const express = require('express')
 const app = express()
 app.use(express.json())
+const crypto = require('crypto')
 const {spawn} = require('node:child_process')
+ const mockRegistry = require('./extractors/registry')
 
 app.use('/files',express.static('downloads'))
 const fs = require('fs')
-const { resolve } = require('node:path')
+
+
 
 
 
 app.post("/api/v1/extract",async(req,res)=>{
     const url =  req.body.url
-
-    const validUrl = new URL(url) 
-    if(!validUrl){
+    const start = Date.now()
+    const requestId = crypto.randomUUID()
+    console.log({
+        requestId,
+        event:"extraction starting",
+        url
+    })
+    
+   let validUrl;
+    try{
+   validUrl  = new URL(url) 
+   
+    }
+    catch(e){
         return res.status(400).json({
-            message:"invalid url"
+            message:'invalid url'
         })
     }
     const platform = returnPlatform(validUrl.hostname)
@@ -37,18 +51,37 @@ app.post("/api/v1/extract",async(req,res)=>{
             message:`${platform} not supported`
         })
     }
-    try{
-           const mocktest =  await retryWithBackoff(()=>mockRegistry[platform](url),3)
-        return  res.json({
-            test:mocktest
-        })
+    const strategies = mockRegistry[platform]
+    console.log(strategies);
+    
+    for(const strategy of strategies){
+        try{
+            const result = await retryWithBackoff(()=>strategy(url),3,requestId,platform)
+            return res.json({
+                test:result
+            })
+        }
+        catch(e){
+            console.log({
+                requestId,
+                stretgy:strategy,
+                message:'this stretgy failed ,trying next'
+            })
+        }
+        
+        finally{
+    const duration = Date.now()-start
+    console.log(duration);
+     
+     
+     }
     }
-    catch(e){
-        console.log(e);
-        return res.status(500).json({
-            message:'error while running the process'
-        })
-    }
+    return res.status(500).json({
+        message:"all extractors failed"
+    })
+   
+    
+   
    
     
 
@@ -86,130 +119,6 @@ function returnPlatform(hostname) {
    }
 }
 
-async function YotubeExtractor(url){
-    let stream="";
-    let killTimeout
-    return new Promise((resolve,reject)=>{
-        console.log('process starting');
-         let settled = false
-        const videoProcess = spawn('yt-dlp',['-J','--force-ipv4',url])
-        const timeout = setTimeout(()=>{
-            if(settled) return
-            settled = true
-            videoProcess.kill('SIGTERM')
-
-            reject(new Error("Timeout"))
-            killTimeout = setTimeout(()=>{
-                videoProcess.kill('SIGKILL')
-                //gracefull Shutdown
-            },5000)
-        }, 60000)
-        
-        
-        videoProcess.stdout.on('data',(data)=>{
-            stream+=data.toString()
-            console.log('hi from inside data add o');
-            
-        })
-        videoProcess.on('close',(code)=>{  
-           if(settled) return
-           settled = true
-           clearTimeout(timeout)
-           clearTimeout(killTimeout)
-            if(code!=0){
-                reject(new Error('yt-dlp failed'))
-                return
-            }
-            
-            
-            const output = JSON.parse(stream)
-        
-            
-           
-            
-        
-            
-            const cleanFormat = output.formats.filter(f=>{
-                return (
-                    f.vcodec!=='none'&&
-                    f.ext==='mp4'&&
-                    !f.format_id.startsWith('sb')&&
-                    f.url&&
-                    f.fps&&
-                    f.vcodec&&
-                    f.acodec
-                   
-                )
-            })
-        
-         
-        
-         
-            const finalFormats = cleanFormat.map(f=>({
-                id:f.format_id,
-                quality:`${f.height}p`,
-                mime:  `video/${f.ext}`,
-                url:f.url,
-                fps:f.fps,
-                vcodec:f.vcodec,
-                acodec:f.acodec,
-                
-
-            }))
-            const AVC=1,VP9 =2,AV1=3
-            for(let i =0;i<finalFormats.length;i++){
-                const codec = finalFormats[i].vcodec
-                if(codec.startsWith('vp')){
-                    finalFormats[i].codecRank = VP9
-                }
-                else if(codec.startsWith('avc')){
-                    finalFormats[i].codecRank = AVC
-                }
-                else if(codec.startsWith('av1')){
-                    finalFormats[i].codecRank = AV1
-                }
-            }
-
-            
-            
-           
-            
-            finalFormats.sort((a,b)=>{
-                return parseInt(a.quality)-parseInt(b.quality)
-            })
-           
-          const grp = groupFormats(finalFormats)
-
-         const contractFormat = pickBest(grp)
-
-           
-           
-           
-           
-           
-           
-            const contract = {
-                platform:"youtube",
-                title: output.title,
-                formats:contractFormat
-                
-                
-            }
-           
-          resolve(contract)
-            console.log(`child process exited with code ${code} `);
-            
-        })
-       videoProcess.stderr.on('data', (data) => {
-  console.error('yt-dlp stderr:', data.toString())
-})
-
-    })
- 
-}
-const mockRegistry = {
-    'youtube': YotubeExtractor,    
-}
 
 
 app.post('/api/v1/download',async(req,res)=>{
@@ -322,69 +231,35 @@ function extractFileName(data){
 
 
 }
- function groupFormats(finalFormats){
-            const groups = {}
-            for(const format of finalFormats){
-                const quality = format.quality
-                if(!groups[quality]){
-                    groups[quality] = []
-                }
-                groups[quality].push(format)
-            }
-            return groups
-           }
 
 
-function pickBest(groups){
-    const result = []
-    for(const quality  in groups){
-        const candidate = groups[quality]
-        let best = candidate[0]
-        for(const c of candidate){  // --> diff in for in and for of loops in js ?? 
-            if(isBetter(c,best)){
-                best = c
-            }
-        }
-         result.push(best)
-    }
-    return result
-   
-
-    
-}
-function isBetter(a,b){
-    const Afps = a.fps || 0
-    const Bfps = b.fps || 0
-    if(Afps>Bfps){
-       return true
-    }
-    else if(Afps==Bfps){
-        if(a.codecRank>b.codecRank){
-            return true
-        }
-        
-    }
-    return false
-    
-}
-
-async function retryWithBackoff(extractor,numberOfRetries){
+async function retryWithBackoff(extractor,numberOfRetries,requestId,platform){
     let retries =0
      let wait =1000
+     
     while(retries<=numberOfRetries){
         try{
            const data = await extractor()
              return data
         }
         catch(e){
+       
+        console.log({
+            requestId,
+            event: "retry attempt",
+            attempt:retries,
+            delayMS:wait    
+        })
+         const jitter = Math.random()*wait*0.2
+            
+           await delay(wait+jitter)
             retries++;
-           await delay(wait+Math.random()*500)
             wait*=2
           
            if(retries>numberOfRetries){
              throw e
            }
-           console.log(`retry ${retries} failed `);
+           console.log(`retry ${retries} failed for ${platform} `);
            
         }
     }  
