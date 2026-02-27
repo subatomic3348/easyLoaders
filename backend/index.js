@@ -4,27 +4,54 @@ app.use(express.json())
 const crypto = require('crypto')
 const {spawn} = require('node:child_process')
  const mockRegistry = require('./extractors/registry')
-
+const nodeCache = require('node-cache')
+ const cache = new nodeCache({stdTTL:300, checkperiod:30})
 app.use('/files',express.static('downloads'))
 const fs = require('fs')
+const test = require('node:test')
 
 
 
+ //cache middleware
+ const checkCache = (req,res,next)=>{
+    console.log('hii');
+    
+    const key = req.body.url
+    const cachedData = cache.get(key)
+    console.log('hii2');
+    
+    
+    if(cachedData){
+       
+        
+        console.log(`Cache hit for key:${key}`);
+        return res.status(200).json({
+            source:'cache',
+            test:cachedData
+        })
+        
+        
+    }
+    console.log(`cache miss for key :${key}`);
+        next()
+ }
 
 
-app.post("/api/v1/extract",async(req,res)=>{
-    const url =  req.body.url
+app.post("/api/v1/extract",checkCache,async(req,res)=>{
+    const key = req.body.url
+   
+    
     const start = Date.now()
     const requestId = crypto.randomUUID()
     console.log({
         requestId,
         event:"extraction starting",
-        url
+        key
     })
     
    let validUrl;
     try{
-   validUrl  = new URL(url) 
+   validUrl  = new URL(key) 
    
     }
     catch(e){
@@ -56,7 +83,8 @@ app.post("/api/v1/extract",async(req,res)=>{
     
     for(const strategy of strategies){
         try{
-            const result = await retryWithBackoff(()=>strategy(url),3,requestId,platform)
+            const result = await retryWithBackoff(()=>strategy(key),3,requestId,platform)
+            cache.set(key,result)
             return res.json({
                 test:result
             })
