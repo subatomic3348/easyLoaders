@@ -177,7 +177,7 @@ app.post('/api/v1/download',async(req,res)=>{
          '/usr/bin/ffmpeg',
           url
     ]
-    const process = spawn('yt-dlp',args)
+    const process = spawn('./yt-dlp',args)
     process.stdout.on('data',(data)=>{
         output += data.toString()
     
