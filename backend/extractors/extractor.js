@@ -6,7 +6,7 @@ async function extractor(url,args){
     return new Promise((resolve,reject)=>{
         console.log('process starting');
          let settled = false
-        const videoProcess = spawn('./yt-dlp',args)
+        const videoProcess = spawn('yt-dlp',args)
         const timeout = setTimeout(()=>{
             if(settled) return
             settled = true

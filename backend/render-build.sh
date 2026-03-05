@@ -1,4 +1,5 @@
+apt-get update
+apt-get install -y ffmpeg
+apt-get install yt-dlp
 npm install
-
-curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o yt-dlp
-chmod +x yt-dlp
+# chmod +x yt-dlp
