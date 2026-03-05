@@ -1,60 +1,67 @@
 const express = require('express')
-const app = express()
-app.use(express.json())
+const app = express() 
+
 const crypto = require('crypto')
 const {spawn} = require('node:child_process')
  const mockRegistry = require('./extractors/registry')
 const nodeCache = require('node-cache')
  const cache = new nodeCache({stdTTL:300, checkperiod:30})
-app.use('/files',express.static('downloads'))
+ const path = require('path')
+
+app.use('/files',express.static(path.join(__dirname,'downloads')))
 const fs = require('fs')
-const test = require('node:test')
+ const getVideoId = require('get-video-id')
 
-
-
- //cache middleware
+//cache middleware
  const checkCache = (req,res,next)=>{
-    console.log('hii');
-    
-    const key = req.body.url
-    const cachedData = cache.get(key)
-    console.log('hii2');
-    
-    
-    if(cachedData){
-       
+    const {id} = getVideoId(req.body.url)
+    if(!id){
+        console.log("invalid or unsupported video id");
+        return next()
         
-        console.log(`Cache hit for key:${key}`);
-        return res.status(200).json({
+    }
+    req.videoId = id
+  
+    
+    const cachedData = cache.get(id)
+    if(cachedData){
+        console.log(`Cache hit for key:${id}`);
+        return res.json({
             source:'cache',
             test:cachedData
         })
         
         
     }
-    console.log(`cache miss for key :${key}`);
+    console.log(`cache miss for key :${id}`);
         next()
  }
 
+app.use(express.json())
 
-app.post("/api/v1/extract",checkCache,async(req,res)=>{
-    const key = req.body.url
-   
-    
+
+
+
+
+
+app.post("/api/v1/extract",checkCache,async(req,res)=>{ 
+    const url = req.body.url
     const start = Date.now()
     const requestId = crypto.randomUUID()
     console.log({
         requestId,
         event:"extraction starting",
-        key
+        url
     })
     
    let validUrl;
     try{
-   validUrl  = new URL(key) 
+   validUrl  = new URL(url)
    
     }
     catch(e){
+    
+        
         return res.status(400).json({
             message:'invalid url'
         })
@@ -83,14 +90,18 @@ app.post("/api/v1/extract",checkCache,async(req,res)=>{
     
     for(const strategy of strategies){
         try{
-            const result = await retryWithBackoff(()=>strategy(key),3,requestId,platform)
-            cache.set(key,result)
+            const result = await retryWithBackoff(()=>strategy(url),3,requestId,platform)
+            cache.set(req.videoId,result)
+            
+              const duration = Date.now()-start
+              console.log(duration);
             return res.json({
                 test:result
             })
         }
         catch(e){
             console.log({
+                e,
                 requestId,
                 stretgy:strategy,
                 message:'this stretgy failed ,trying next'
@@ -98,8 +109,7 @@ app.post("/api/v1/extract",checkCache,async(req,res)=>{
         }
         
         finally{
-    const duration = Date.now()-start
-    console.log(duration);
+  
      
      
      }
@@ -296,8 +306,8 @@ async function retryWithBackoff(extractor,numberOfRetries,requestId,platform){
         return new Promise(resolve=>setTimeout(resolve,ms))
     }
 
-
-app.listen(3000,()=>{
-    console.log("app is listening on port 3000");
+ const PORT = process.env.PORT||3000
+app.listen(PORT,()=>{
+    console.log(`app is listening on  ${PORT}` );
     
 })
