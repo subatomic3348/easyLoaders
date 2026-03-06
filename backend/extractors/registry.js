@@ -5,7 +5,7 @@ const yotubeBrowserExtractor = require('./youtube/mobile')
 
 
  const registry = {
-    'youtube':[yotubeNetworkFallbackExtractor]
+    'youtube':[yotubePrimaryExtractor]
 }
 
 module.exports = registry
