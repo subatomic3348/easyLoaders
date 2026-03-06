@@ -306,6 +306,27 @@ async function retryWithBackoff(extractor,numberOfRetries,requestId,platform){
         return new Promise(resolve=>setTimeout(resolve,ms))
     }
 
+    app.get('/debug', (req, res) => {
+  const { spawn } = require('child_process')
+
+  const process = spawn('./yt-dlp', [
+    '-J',
+    'https://youtu.be/_nbTztJARrg?si=XuCxLbPDfBXTY3Jj'
+  ])
+
+  let output = ''
+
+  process.stdout.on('data', d => output += d.toString())
+  process.stderr.on('data', d => console.log(d.toString()))
+
+  process.on('close', code => {
+    res.send({
+      code,
+      output: output.slice(0, 500)
+    })
+  })
+})
+
  const PORT = process.env.PORT||3000
 app.listen(PORT,()=>{
     console.log(`app is listening on  ${PORT}` );
